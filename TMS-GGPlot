@@ -1,0 +1,194 @@
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(reshape2)
+# Load in Data
+setwd("~/Desktop")
+Data <- read.csv("Deidentified.CSV")
+
+# Change character values to numeric values
+Data$PHQ_START <- as.numeric(as.character(Data$PHQ_START))
+Data$PHQ_END <- as.numeric(as.character(Data$PHQ_END))
+Data$PHQ9_SCORE <- as.numeric(as.character(Data$PHQ9_SCORE))
+
+####################################################################################################################
+## Plotting distribution of PHQ9 Start Values
+# First group by PID and filter out patients missing values
+m1 <-
+Data %>% group_by(PID) %>%
+  filter(row_number()==1) %>%
+  drop_na(PHQ_START)
+
+# Create levels of PHQ9 scores
+m1$PHQ9_START_LEVEL <- m1$PHQ_START
+m1$PHQ9_START_LEVEL[m1$PHQ_START <=4] <- "Low"
+m1$PHQ9_START_LEVEL[m1$PHQ_START >=5 & m1$PHQ_START <=9] <- "Mild"
+m1$PHQ9_START_LEVEL[m1$PHQ_START >=10 & m1$PHQ_START<=14] <- "Moderate"
+m1$PHQ9_START_LEVEL[m1$PHQ_START >=15 & m1$PHQ_START<=19] <- "Moderately Severe"
+m1$PHQ9_START_LEVEL[m1$PHQ_START >=20 & m1$PHQ_START<=27] <- "Severe"
+
+# Factor the levels we just created
+m1$PHQ9_START_LEVEL <- factor(m1$PHQ9_START_LEVEL, levels=c("Low","Mild", "Moderate", "Moderately Severe", "Severe"), 
+                              labels=c("Low","Mild", "Moderate", "Moderately Severe", "Severe"))
+
+median <- median(m1$PHQ_START)
+
+#Create the ggplot
+a <- ggplot(data = m1, aes(PHQ_START, fill = PHQ9_START_LEVEL), stat = "count", position = "dodge"  ) +
+  geom_bar() + labs(title = "Distribution of PHQ9 Start Values Among Sample", 
+                    x = "PHQ9 Score", 
+                    y = "Number of Patients") +
+  theme_linedraw()+
+  theme(plot.title = element_text(hjust = 0.5)) +
+  geom_vline(xintercept = 16.5, linetype = "dotted", color = "grey29", size = 0.5) +
+  annotate("text", x = 19, y = 17, 
+           label = "Median PHQ9 Starting Score: 17", 
+           size = 3) + 
+  annotate("rect", xmin =16.5 , xmax =28, ymin =0 , ymax =20, alpha = 0.1)
+
+# Adjust X scale and fill in colors manually
+a <- a + scale_x_continuous(breaks = c(0, 5, 10, 15, 20, 25), limits = c(0, 28)) + 
+  scale_fill_manual(values = c("#6BB100", "#A3A500", "#C99800", "#E58700", "#F8766D"),
+                    name = "PHQ9 Severity Levels")
+a 
+
+####################################################################################################################
+## Plotting mean change of PHQ9 
+# First group by PID and filter out patients missing values
+m2 <-
+  Data %>% group_by(PID) %>%
+  filter(row_number()==1) %>%
+  drop_na(PHQ_START)%>%
+  drop_na(PHQ_END)
+
+# Filter out people who had coil switches
+#m2 <- m2[m2$TxSeries1_CoilSwitch != "No",]
+
+# Calculate change per patient
+m2$PHQ_CHANGE <- m2$PHQ_END - m2$PHQ_START
+
+# Create levels for changes
+m2$PHQ9_CHANGE_PER_COIL <- (m2$PHQ_CHANGE <0) 
+m2$PHQ9_CHANGE_PER_COIL <- (m2$PHQ_CHANGE >=0)
+m2$PHQ9_CHANGE_PER_COIL[m2$PHQ9_CHANGE_PER_COIL == FALSE] <- "Net Decrease"
+m2$PHQ9_CHANGE_PER_COIL[m2$PHQ9_CHANGE_PER_COIL == TRUE] <- "Net Increase"
+
+# Plot PHQ9 Change Considering Coil Change                        
+b <- ggplot(m2, aes(x=PHQ_CHANGE))
+b <- b + geom_histogram(aes(x=PHQ_CHANGE, y=..density.., fill = m2$PHQ9_CHANGE_PER_COIL),
+                        binwidth = 1, color = "white") + 
+  facet_wrap(~m2$TxSeries1_CoilSwitch) + 
+  geom_density(color = "black") + 
+  scale_fill_manual(values = c("#6BB100", "#F8766D"),
+                    name = "Net PHQ9 Score Change") +
+    labs(title = "Distribution of PHQ9 Score Changes Dependent on Coil Change", 
+      x = "Change in PHQ9 Score", 
+      y = "Distribution") +
+  theme_linedraw()+
+  theme(plot.title = element_text(hjust = 0.5))
+b
+
+# Plot PHQ9 Change By Coil                        
+b <- ggplot(m2, aes(x=PHQ_CHANGE))
+b <- b + geom_histogram(aes(x=PHQ_CHANGE, y=..density.., fill = m2$PHQ9_CHANGE_PER_COIL),
+                        binwidth = 1, color = "white") + 
+  facet_wrap(~m2$TxSeries1_Coil1_Name) + 
+  geom_density(color = "black") + 
+  scale_fill_manual(values = c("#6BB100", "#F8766D"),
+                    name = "Net PHQ9 Score Change") +
+  labs(title = "Distribution of PHQ9 Score Changes by Coil Type", 
+       x = "Change in PHQ9 Score", 
+       y = "Distribution") +
+  theme_linedraw()+
+  theme(plot.title = element_text(hjust = 0.5))
+b
+
+####################################################################################################################
+# Plot PHQ9 Change By Doctor
+# Remove doctors with only 1 patient
+m2 <- m2[m2$Treating_Doctor != "Bass",]
+m2 <- m2[m2$Treating_Doctor != "Messer",]
+m2 <- m2[m2$Treating_Doctor != "Rittenberg",]
+m2 <- m2[m2$Treating_Doctor != "Cullen",]
+m2 <- m2[m2$Treating_Doctor != "Dirlam/Albott",]
+
+# Plot
+c <- ggplot(m2, aes(x=(m2$PHQ_CHANGE), y=m2$Treating_Doctor, color = m2$Treating_Doctor, fill = m2$Treating_Doctor, alpha = 0.5)) +
+  geom_boxplot() +
+  labs(title = "PHQ9 Score Changes Dependent on Coil Switch in Treatment Series", 
+       x = "Change in PHQ9 Score", 
+       y = "Treating Doctor") +
+  theme_linedraw()+
+  theme(plot.title = element_text(hjust = 0.5), legend.position = "none") +
+  geom_vline(aes(xintercept=0), linetype = "solid", color = "grey29", size = 1) + 
+  scale_y_discrete(limits=rev) + 
+  facet_wrap(~m2$TxSeries1_CoilSwitch, ncol = 1) 
+c
+
+####################################################################################################################
+# Raw all dates plotted on top of each other
+
+# Drop NAs in PHQ9 Score
+m3<-
+  Data %>% group_by(PID) %>%
+  drop_na(PHQ9_SCORE) %>%
+  drop_na(PHQ_START)%>%
+  drop_na(PHQ_END)
+
+
+# Assign series number
+m3$Tx_Series_Number <- ifelse(m3$Last_Tx_Date_Count == m3$TxSeries1_End_Count, "Series 1", 
+                  ifelse(m3$TxSeries2_Start_Count <= m3$Day_Since_FirstTX & m3$Day_Since_FirstTX <= m3$TxSeries2_End_Count, "Series 2",
+                  ifelse(m3$TxSeries3_Start_Count <= m3$Day_Since_FirstTX & m3$Day_Since_FirstTX <= m3$TxSeries3_End_Count, "Series 3",
+                  ifelse(m3$TxSeries4_Start_Count <= m3$Day_Since_FirstTX & m3$Day_Since_FirstTX <= m3$TxSeries4_End_Count, "Series 4", 0))))
+
+# Create levels for series number
+m3$Tx_Series_Number <- factor(c("Series 1", "Series 2", "Series 3", "Series 4"), levels = c("Series 1", "Series 2", "Series 3", "Series 4", 0))
+m3$Tx_Series_Number[m3$Tx_Series_Number == "Series 1"] <- 1
+m3$Tx_Series_Number[m3$Tx_Series_Number == "Series 2"] <- 2
+m3$Tx_Series_Number[m3$Tx_Series_Number == "Series 3"] <- 3
+m3$Tx_Series_Number[m3$Tx_Series_Number == "Series 4"] <- 4
+m3$Tx_Series_Number[m3$Tx_Series_Number == 0] <- 0
+m3$Tx_Series_Number <- factor(c("Series 1", "Series 2", "Series 3", "Series 4", 0))
+
+
+# Remove PHQ9 values from outside of treatment series and remove any remaining NAs
+m3 <- m3[!(m3$Tx_Series_Number == 0),]
+m3 <- m3[!is.na(m3$Tx_Series_Number), ]
+
+# Remove PHQ9 values that were taken past tx day 55 (median)
+median(m3$TxSeries1_End_Count)
+m4 <- m3[!(m3$Day_Since_FirstTX >= 55),]
+
+# Calculate change per patient
+m4$PHQ_CHANGE <- m4$PHQ_END - m4$PHQ_START
+
+# Create levels for changes
+m4$PHQ9_CHANGE_PER_COIL <- (m4$PHQ_CHANGE <0) 
+m4$PHQ9_CHANGE_PER_COIL <- (m4$PHQ_CHANGE >=0)
+m4$PHQ9_CHANGE_PER_COIL[m4$PHQ9_CHANGE_PER_COIL == FALSE] <- "Net Decrease"
+m4$PHQ9_CHANGE_PER_COIL[m4$PHQ9_CHANGE_PER_COIL == TRUE] <- "Net Increase"
+
+unique(m4$PID)
+
+m4$PHQ9_START_LEVEL <- m4$PHQ_START
+m4$PHQ9_START_LEVEL[m4$PHQ_START <=4] <- "Low"
+m4$PHQ9_START_LEVEL[m4$PHQ_START >=5 & m4$PHQ_START <=9] <- "Mild"
+m4$PHQ9_START_LEVEL[m4$PHQ_START >=10 & m4$PHQ_START<=14] <- "Moderate"
+m4$PHQ9_START_LEVEL[m4$PHQ_START >=15 & m4$PHQ_START<=19] <- "Moderately Severe"
+m4$PHQ9_START_LEVEL[m4$PHQ_START >=20 & m4$PHQ_START<=27] <- "Severe"
+
+m4 <- m4[!(m4$PHQ9_START_LEVEL == "Low"),]
+
+
+# Plot PHQ9 scores over time (First Series <= 55 Days)
+d <- ggplot(m4, aes(Day_Since_FirstTX, PHQ9_SCORE, group = PHQ9_START_LEVEL)) +
+  geom_line(aes(group = PID, color = PHQ9_CHANGE_PER_COIL), size = 0.3) +
+  scale_color_manual(values = c("#00C0AF", "#FD61D1"), name = "Coil Change During Treatment") +
+  facet_grid( m4$TxSeries1_Coil1_Name ~ m4$PHQ9_START_LEVEL) +
+  labs(title = "PHQ9 Changes By Starting PHQ9 Score", 
+    x = "Days Since First Treatment", 
+    y = "Change in PHQ9 Score") +
+  theme_linedraw()+
+  theme(plot.title = element_text(hjust = 0.5), legend.position = "top")
+d
